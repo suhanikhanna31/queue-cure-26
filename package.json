@@ -1,0 +1,26 @@
+cat << 'EOF' > package.json
+{
+  "name": "queue-cure-26",
+  "version": "1.0.0",
+  "description": "Telemetry-Driven Clinic Engine for Queue Cure '26 Hackathon",
+  "main": "src/server.ts",
+  "scripts": {
+    "dev": "tsx src/server.ts",
+    "start": "tsx src/server.ts",
+    "cli": "tsx src/cli.ts",
+    "build": "tsc"
+  },
+  "dependencies": {
+    "fastify": "^4.26.2",
+    "@fastify/static": "^7.0.1",
+    "socket.io": "^4.7.4",
+    "socket.io-client": "^4.7.4",
+    "commander": "^12.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.2",
+    "@types/node": "^20.11.24",
+    "tsx": "^4.7.1"
+  }
+}
+EOF
