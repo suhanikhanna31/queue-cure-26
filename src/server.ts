@@ -1,13 +1,18 @@
+Here is the complete, unified `src/server.ts` file containing your full state engine, custom async mutex, backup synchronization, and the dynamic network port configuration needed for your Railway container deployment.
+
+```typescript
 import Fastify from "fastify";
 import { Server as SocketIOServer } from "socket.io";
 import { createServer } from "http";
 import { readFileSync, writeFileSync, existsSync } from "fs";
 import { join } from "path";
 
+// ─── Interfaces ────────────────────────────────────────────────────────────────
+
 export interface Patient {
   token: number;
   name: string;
-  addedAt: number;
+  addedAt: number; // epoch ms
 }
 
 export interface CompletedSession {
@@ -21,16 +26,21 @@ export interface ClinicState {
   tokenCounter: number;
   queue: Patient[];
   current: Patient | null;
-  currentStartTime: number | null;
+  currentStartTime: number | null; // epoch ms when current patient was called
   completed: CompletedSession[];
-  avgConsultationTime: number;
-  wmaBuffer: number[];
+  avgConsultationTime: number; // receptionist-set baseline in seconds
+  wmaBuffer: number[]; // last 3 actual durations (seconds)
   lastUpdated: number;
 }
 
-const PORT = 3000;
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+// Dynamic environment port for Railway production, fallback to 3000 locally
+const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 const BACKUP_PATH = join(process.cwd(), "backup.json");
 const WMA_WINDOW = 3;
+
+// ─── Mutex / Transactional Queue ─────────────────────────────────────────────
 
 class AsyncMutex {
   private queue: Array<() => void> = [];
@@ -66,6 +76,8 @@ class AsyncMutex {
   }
 }
 
+// ─── State Engine ─────────────────────────────────────────────────────────────
+
 class ClinicStateEngine {
   private state: ClinicState;
   private historyStack: string[] = [];
@@ -83,11 +95,13 @@ class ClinicStateEngine {
       current: null,
       currentStartTime: null,
       completed: [],
-      avgConsultationTime: 300,
+      avgConsultationTime: 300, // default 5 minutes
       wmaBuffer: [],
       lastUpdated: Date.now(),
     };
   }
+
+  // ── WMA Calculation ─────────────────────────────────────────────────────────
 
   private computeWMA(): number {
     const buf = this.state.wmaBuffer;
@@ -105,10 +119,14 @@ class ClinicStateEngine {
     }
   }
 
+  // ── Wait Time Estimation ────────────────────────────────────────────────────
+
   computeWaitForPosition(positionFromFront: number): number {
     const wma = this.computeWMA();
     return positionFromFront * wma;
   }
+
+  // ── History / Undo ──────────────────────────────────────────────────────────
 
   private snapshotState(): void {
     const snap = JSON.stringify(this.state);
@@ -130,6 +148,8 @@ class ClinicStateEngine {
       return this.getSnapshot();
     });
   }
+
+  // ── Atomic State Mutations ──────────────────────────────────────────────────
 
   async addPatient(name: string): Promise<ClinicState> {
     return this.mutex.run(() => {
@@ -189,6 +209,8 @@ class ClinicStateEngine {
     });
   }
 
+  // ── Read State ──────────────────────────────────────────────────────────────
+
   getSnapshot(): ClinicState {
     return JSON.parse(JSON.stringify(this.state)) as ClinicState;
   }
@@ -214,6 +236,8 @@ class ClinicStateEngine {
   }
 }
 
+// ─── Backup / Persistence ─────────────────────────────────────────────────────
+
 function persistBackup(state: ClinicState): void {
   setImmediate(() => {
     try {
@@ -229,18 +253,23 @@ function loadBackup(): ClinicState | null {
     if (existsSync(BACKUP_PATH)) {
       const raw = readFileSync(BACKUP_PATH, "utf-8");
       const parsed = JSON.parse(raw) as ClinicState;
-      console.log(`[BOOT] Recovered state from backup.json — token counter at ${parsed.tokenCounter}`);
+      console.log(
+        `[BOOT] Recovered state from backup.json — token counter at ${parsed.tokenCounter}, queue length: ${parsed.queue.length}`
+      );
       return parsed;
     }
   } catch (err) {
-    console.error("[BOOT] Failed to parse backup.json:", err);
+    console.error("[BOOT] Failed to parse backup.json, starting fresh:", err);
   }
   return null;
 }
 
+// ─── Server Bootstrap ─────────────────────────────────────────────────────────
+
 async function bootstrap() {
   const recoveredState = loadBackup();
   const engine = new ClinicStateEngine(recoveredState ?? undefined);
+
   const app = Fastify({ logger: false });
 
   await app.register(import("@fastify/static"), {
@@ -249,8 +278,12 @@ async function bootstrap() {
   });
 
   const httpServer = createServer(app.server);
+
   const io = new SocketIOServer(httpServer, {
-    cors: { origin: "*", methods: ["GET", "POST"] },
+    cors: {
+      origin: "*",
+      methods: ["GET", "POST"],
+    },
     transports: ["websocket", "polling"],
   });
 
@@ -259,47 +292,89 @@ async function bootstrap() {
     io.emit("state:sync", enriched);
   }
 
+  // ── REST endpoints ──────────────────────────────────────────────────────────
+
   app.get("/api/state", async (_req, reply) => {
     return reply.send(engine.getEnrichedSnapshot());
   });
 
+  app.get("/health", async (_req, reply) => {
+    return reply.send({ status: "ok", uptime: process.uptime() });
+  });
+
+  // ── Socket.io event handlers ────────────────────────────────────────────────
+
   io.on("connection", (socket) => {
+    console.log(`[SOCKET] Client connected: ${socket.id}`);
+
     socket.emit("state:sync", engine.getEnrichedSnapshot());
 
-    socket.on("patient:add", async (payload: { name?: string }, ack?: (s: unknown) => void) => {
-      const name = typeof payload?.name === "string" ? payload.name : "Anonymous";
-      const state = await engine.addPatient(name);
-      broadcastState();
-      if (typeof ack === "function") ack({ success: true, token: state.tokenCounter });
-    });
+    socket.on(
+      "patient:add",
+      async (payload: { name?: string }, ack?: (s: unknown) => void) => {
+        const name = typeof payload?.name === "string" ? payload.name : "Anonymous";
+        const state = await engine.addPatient(name);
+        broadcastState();
+        if (typeof ack === "function") {
+          ack({ success: true, token: state.tokenCounter });
+        }
+      }
+    );
 
     socket.on("queue:callNext", async (ack?: (s: unknown) => void) => {
       const state = await engine.callNext();
       broadcastState();
-      if (typeof ack === "function") ack({ success: true, current: state.current });
+      if (typeof ack === "function") {
+        ack({ success: true, current: state.current });
+      }
     });
 
     socket.on("queue:undo", async (ack?: (s: unknown) => void) => {
       const state = await engine.undo();
       broadcastState();
-      if (typeof ack === "function") ack({ success: true, state });
+      if (typeof ack === "function") {
+        ack({ success: true, historyDepth: 0, state });
+      }
     });
 
-    socket.on("config:setAvgTime", async (payload: { seconds?: number }) => {
-      const seconds = typeof payload?.seconds === "number" ? payload.seconds : 300;
-      await engine.setAvgConsultationTime(seconds);
-      broadcastState();
-    });
+    socket.on(
+      "config:setAvgTime",
+      async (payload: { seconds?: number }, ack?: (s: unknown) => void) => {
+        const seconds = typeof payload?.seconds === "number" ? payload.seconds : 300;
+        await engine.setAvgConsultationTime(seconds);
+        broadcastState();
+        if (typeof ack === "function") {
+          ack({ success: true, avgConsultationTime: seconds });
+        }
+      }
+    );
 
     socket.on("cli:status", (ack?: (s: unknown) => void) => {
-      if (typeof ack === "function") ack(engine.getEnrichedSnapshot());
+      if (typeof ack === "function") {
+        ack(engine.getEnrichedSnapshot());
+      }
+    });
+
+    socket.on("disconnect", () => {
+      console.log(`[SOCKET] Client disconnected: ${socket.id}`);
     });
   });
 
   await app.ready();
+
+  // Explicitly bound to host 0.0.0.0 for external cloud port proxy access
   httpServer.listen(PORT, "0.0.0.0", () => {
-    console.log(`\nQueue Cure '26 Engine Online at http://localhost:${PORT}\n`);
+    console.log(`\n╔══════════════════════════════════════╗`);
+    console.log(`║  Queue Cure '26 — Clinic Engine      ║`);
+    console.log(`╠══════════════════════════════════════╣`);
+    console.log(`║  PORT  → Running live on port: ${PORT}  ║`);
+    console.log(`╚══════════════════════════════════════╝\n`);
   });
 }
 
-bootstrap().catch(err => console.error(err));
+bootstrap().catch((err) => {
+  console.error("[FATAL] Server failed to start:", err);
+  process.exit(1);
+});
+
+```
