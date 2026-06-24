@@ -1,49 +1,40 @@
-(() => {
-  const socket = io({ transports: ["websocket"] });
-  let lastToken = null;
+// Connect to the socket server
+const socket = io();
 
-  socket.on("connect", () => {
-    document.getElementById("ws-badge").className = "px-3 py-1 rounded-full text-xs font-bold border-2 border-[#1e1e1e] bg-[#bbf7d0]";
-    document.getElementById("ws-badge").innerText = "● Live Sync Active";
-  });
+// DOM Elements
+const nameInput = document.getElementById('nameInput');
+const addBtn = document.getElementById('addBtn');
+const callBtn = document.getElementById('callBtn');
+const undoBtn = document.getElementById('undoBtn');
 
-  socket.on("state:sync", (state) => {
-    document.getElementById("stat-waiting").innerText = state.queue.length;
-    document.getElementById("stat-wma").innerText = `${Math.round(state.computedWMA)}s`;
-    document.getElementById("undo-depth").innerText = state.historyDepth;
+// UI Update Function
+socket.on('state:sync', (state) => {
+  // Update Patient Name
+  document.getElementById('currentPatient').innerText = 
+    state.current ? state.current.name : '- AWAITING FIRST CALL -';
+  
+  // Update Metrics
+  document.getElementById('waitCount').innerText = state.queue.length;
+  document.getElementById('avgPace').innerText = state.computedWMA ? 
+    Math.round(state.computedWMA) + 's' : '-';
+  document.getElementById('historyCount').innerText = state.completed.length;
 
-    if (state.current) {
-      document.getElementById("serving-token").innerText = `#${state.current.token}`;
-      document.getElementById("serving-name").innerText = state.current.name;
-      
-      if (lastToken !== state.current.token && window.speechSynthesis) {
-        window.speechSynthesis.cancel();
-        window.speechSynthesis.speak(new SpeechSynthesisUtterance(`Token ${state.current.token}, proceed inside.`));
-        lastToken = state.current.token;
-      }
-    } else {
-      document.getElementById("serving-token").innerText = "—";
-      document.getElementById("serving-name").innerText = "No active session";
-    }
+  // Update List
+  const list = document.getElementById('queueList');
+  list.innerHTML = state.queue.map((p, i) => `<div>${i + 1}. ${p.name}</div>`).join('');
+});
 
-    const list = document.getElementById("queue-list");
-    list.innerHTML = "";
-    state.queue.forEach(p => {
-      const li = document.createElement("li");
-      li.className = "flex justify-between bg-gray-50 border-2 border-[#1e1e1e] p-2 rounded-xl font-bold text-sm";
-      li.innerHTML = `<span>#${p.token} ${p.name}</span><span class="text-orange-600">~${Math.round(p.estimatedWaitSeconds)}s</span>`;
-      list.appendChild(li);
-    });
-  });
+// Event Listeners
+addBtn.addEventListener('click', () => {
+  const name = nameInput.value;
+  socket.emit('patient:add', { name });
+  nameInput.value = '';
+});
 
-  document.getElementById("add-patient-form").addEventListener("submit", (e) => {
-    e.preventDefault();
-    const el = document.getElementById("patient-name-input");
-    if(el.value.trim()) {
-      socket.emit("patient:add", { name: el.value.trim() }, () => el.value = "");
-    }
-  });
+callBtn.addEventListener('click', () => {
+  socket.emit('queue:callNext');
+});
 
-  document.getElementById("call-next-btn").addEventListener("click", () => socket.emit("queue:callNext"));
-  document.getElementById("undo-btn").addEventListener("click", () => socket.emit("queue:undo"));
-})();
+undoBtn.addEventListener('click', () => {
+  socket.emit('queue:undo');
+});
