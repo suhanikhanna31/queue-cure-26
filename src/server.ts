@@ -1,6 +1,4 @@
-Here is the complete, unified `src/server.ts` file containing your full state engine, custom async mutex, backup synchronization, and the dynamic network port configuration needed for your Railway container deployment.
 
-```typescript
 import Fastify from "fastify";
 import { Server as SocketIOServer } from "socket.io";
 import { createServer } from "http";
