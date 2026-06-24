@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Queue Cure '26</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;800&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Plus Jakarta Sans', sans-serif; background: #fefaf6; }
+    .kawaii-card { background: #fff; border: 3px solid #1e1e1e; box-shadow: 4px 4px 0px #1e1e1e; border-radius: 16px; }
+    .kawaii-btn { border: 3px solid #1e1e1e; box-shadow: 3px 3px 0px #1e1e1e; border-radius: 12px; font-weight: 800; cursor: pointer; }
+    .kawaii-btn:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0px #1e1e1e; }
+    .kawaii-input { border: 3px solid #1e1e1e; border-radius: 12px; }
+  </style>
+</head>
+<body class="p-6 text-[#1e1e1e]">
+  <header class="max-w-6xl mx-auto mb-6 flex justify-between items-center border-b-4 border-dashed border-[#1e1e1e] pb-4">
+    <div>
+      <h1 class="text-3xl font-extrabold">Queue Cure <span class="bg-[#ffb2c5] px-2 py-0.5 rounded border-2 border-[#1e1e1e] text-xs">’26</span></h1>
+    </div>
+    <div id="ws-badge" class="px-3 py-1 rounded-full text-xs font-bold border-2 border-[#1e1e1e] bg-[#ffdf7e]">Connecting...</div>
+  </header>
+  <main class="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-8">
+    <section class="flex flex-col gap-4">
+      <h2 class="text-xl font-extrabold">👩‍⚕️ Screen 1: Reception Desk</h2>
+      <div class="kawaii-card p-6 bg-[#f0fdf4]">
+        <form id="add-patient-form" onsubmit="return false;" class="flex gap-2">
+          <input type="text" id="patient-name-input" placeholder="Patient Name" required class="flex-1 p-3 kawaii-input font-bold" />
+          <button type="submit" id="add-patient-btn" class="kawaii-btn bg-[#bbf7d0] px-6">Add</button>
+        </form>
+      </div>
+      <div class="kawaii-card p-6 flex flex-col gap-3">
+        <button id="call-next-btn" class="kawaii-btn bg-[#ffdf7e] py-4 text-lg">🔔 Call Next Patient</button>
+        <button id="undo-btn" class="kawaii-btn bg-[#ffb2c5] py-2 text-xs">Undo Action (History Stack: <span id="undo-depth">0</span>)</button>
+      </div>
+    </section>
+    <section class="flex flex-col gap-4">
+      <h2 class="text-xl font-extrabold">📺 Screen 2: Waiting Room Board</h2>
+      <div class="kawaii-card p-8 bg-[#ffdf7e] text-center">
+        <div class="text-xs uppercase font-extrabold opacity-50">Currently Inside</div>
+        <div id="serving-token" class="text-6xl font-extrabold my-2">—</div>
+        <div id="serving-name" class="text-lg font-bold text-gray-700">Waiting for call...</div>
+      </div>
+      <div class="grid grid-cols-2 gap-4">
+        <div class="kawaii-card p-4 bg-[#e0f2fe] text-center font-bold">Waiting: <span id="stat-waiting">0</span></div>
+        <div class="kawaii-card p-4 bg-[#ccfbf1] text-center font-bold">Avg Pace: <span id="stat-wma">5m</span></div>
+      </div>
+      <div class="kawaii-card p-6 flex-1">
+        <h3 class="font-extrabold mb-3">📋 Queue Sequence</h3>
+        <ul id="queue-list" class="flex flex-col gap-2"></ul>
+      </div>
+    </section>
+  </main>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
