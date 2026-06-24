@@ -41,18 +41,7 @@ Mathematical Progression:
 When a patient is marked complete, their real cabin session duration is derived:
 Duration=Date.now()−currentStartTime
 This is pushed to the wmaBuffer array. Individual patient tokens waiting in line receive an immediate, unique computed delay value based directly on their real position index:
-Estimated Wait Time=(Queue Position)× 
-n
-∑ 
-i=1
-n
-​	
- Duration 
-i
-​	
- 
-​	
- 
+Estimated Wait Time = (Queue Position) × (Sum of Last 3 Durations / 3)
 Edge Case Mitigation: If the calculation queue initializes with no history (e.g., first start of morning operations), the system safely cascades back to the receptionist's manual base parameters (avgConsultationTime).
 4. Mistake-Proof Rollback History Ring Buffer
 Accidental interface interactions ("double tapping") can disrupt clinical flow and confuse patients in the waiting lounge.
